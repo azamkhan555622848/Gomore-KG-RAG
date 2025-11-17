@@ -1,0 +1,49 @@
+# Build Phase Requirements (PC/Server)
+# For knowledge graph construction and indexing
+
+# Core
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+
+# Document Processing
+PyPDF2>=3.0.0
+python-docx>=1.1.0
+markdown>=3.5.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+
+# NLP & Text Processing
+nltk>=3.8.0
+spacy>=3.7.0
+tiktoken>=0.5.0
+
+# Embeddings
+sentence-transformers>=2.5.0
+torch>=2.1.0  # For sentence-transformers
+transformers>=4.35.0
+
+# Vector Store
+faiss-cpu>=1.8.0  # Use faiss-gpu if GPU available
+numpy>=1.24.0
+
+# Knowledge Graph
+networkx>=3.2.0
+python-louvain>=0.16  # For community detection
+
+# LLM Interface
+ollama>=0.1.0  # Ollama Python client
+requests>=2.31.0
+
+# Data Processing
+pandas>=2.1.0
+tqdm>=4.66.0
+
+# Export & Serialization
+msgpack>=1.0.7
+
+# Logging
+loguru>=0.7.0
+
+# Optional: for better PDF extraction
+pytesseract>=0.3.10  # OCR for scanned PDFs
+Pillow>=10.0.0
