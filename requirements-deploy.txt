@@ -1,0 +1,23 @@
+# Deployment Phase Requirements (Mobile/Lightweight)
+# Minimal dependencies for query-only operations
+
+# Core
+python-dotenv>=1.0.0
+
+# Vector Store (lightweight)
+faiss-cpu>=1.8.0
+numpy>=1.24.0
+
+# Knowledge Graph (lightweight)
+networkx>=3.2.0
+
+# LLM Interface
+ollama>=0.1.0
+requests>=2.31.0
+
+# Utilities
+tqdm>=4.66.0
+loguru>=0.7.0
+
+# Optional: If using sentence-transformers for query embedding
+# sentence-transformers>=2.5.0  # Uncomment if needed
