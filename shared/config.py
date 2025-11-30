@@ -27,7 +27,7 @@ class BuildPhaseConfig:
     # Document processing
     chunk_size: int = 512
     chunk_overlap: int = 50
-    supported_formats: List[str] = field(default_factory=lambda: ['.pdf', '.docx', '.txt', '.md'])
+    supported_formats: List[str] = field(default_factory=lambda: ['.pdf', '.docx', '.txt', '.md', '.csv'])
 
     # Entity extraction
     ollama_host: str = "http://localhost:11434"

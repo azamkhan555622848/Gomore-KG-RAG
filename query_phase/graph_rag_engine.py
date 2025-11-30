@@ -4,6 +4,8 @@ Main orchestration for query processing and answer generation
 """
 
 import time
+import json
+import gzip
 from typing import Dict, List, Optional
 from loguru import logger
 import numpy as np
@@ -57,8 +59,35 @@ class GraphRAGEngine:
 
         # Load chunk texts (for context assembly)
         self.chunk_texts: Dict[str, str] = {}
+        self._load_chunk_texts()
 
         logger.info("Graph-RAG Engine initialized successfully")
+
+    def _load_chunk_texts(self) -> None:
+        """
+        Load chunk texts from exported file
+        """
+        chunk_texts_path = self.graph_loader.shared_config.graph_path.parent / "chunk_texts.json.gz"
+
+        if not chunk_texts_path.exists():
+            logger.warning(f"Chunk texts file not found: {chunk_texts_path}")
+            logger.warning("Chunk texts will not be available for context assembly")
+            return
+
+        try:
+            logger.info(f"Loading chunk texts from {chunk_texts_path}")
+            with gzip.open(chunk_texts_path, 'rt', encoding='utf-8') as f:
+                chunk_data = json.load(f)
+
+            # Extract text from chunk data
+            for chunk_id, data in chunk_data.items():
+                self.chunk_texts[chunk_id] = data['text']
+
+            logger.info(f"Loaded {len(self.chunk_texts)} chunk texts")
+
+        except Exception as e:
+            logger.error(f"Error loading chunk texts: {e}")
+            logger.warning("Proceeding without chunk texts")
 
     def query(self, question: str) -> QueryResult:
         """
@@ -112,20 +141,21 @@ class GraphRAGEngine:
 
     def _populate_chunk_texts(self, retrieval_results: List[RetrievalResult]) -> None:
         """
-        Populate chunk texts from graph data
+        Populate chunk texts from loaded chunk data
 
         Args:
             retrieval_results: List of retrieval results
         """
         for result in retrieval_results:
-            if result.chunk_id not in self.chunk_texts:
-                # Try to get chunk text from graph node attributes
-                # In a full implementation, chunk texts would be stored separately
-                # For now, we'll use a placeholder
-                self.chunk_texts[result.chunk_id] = f"[Chunk {result.chunk_id}]"
+            # Get chunk text from loaded chunk texts
+            chunk_text = self.chunk_texts.get(result.chunk_id, "")
+
+            if not chunk_text:
+                logger.warning(f"Chunk text not found for {result.chunk_id}")
+                chunk_text = f"[Text not available for {result.chunk_id}]"
 
             # Update result with text
-            result.text = self.chunk_texts.get(result.chunk_id, "")
+            result.text = chunk_text
 
     def _assemble_context(
         self,

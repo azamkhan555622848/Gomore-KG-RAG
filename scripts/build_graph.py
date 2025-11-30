@@ -170,6 +170,10 @@ def main():
     exporter.export_graph(graph)
     print(f"  ✓ Graph exported to {shared_config.graph_path}")
 
+    # Export chunk texts
+    exporter.export_chunk_texts(all_chunks)
+    print(f"  ✓ Chunk texts exported")
+
     # Export embeddings
     exporter.export_embeddings(chunk_embeddings, entity_embeddings)
     print(f"  ✓ Embeddings exported")

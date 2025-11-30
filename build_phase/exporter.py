@@ -63,6 +63,35 @@ class GraphExporter:
 
         return output_path
 
+    def export_chunk_texts(self, chunks: list) -> None:
+        """
+        Export chunk texts to compressed JSON file
+
+        Args:
+            chunks: List of TextChunk objects
+        """
+        logger.info("Exporting chunk texts")
+
+        chunk_texts_path = self.shared_config.graph_path.parent / "chunk_texts.json.gz"
+        chunk_texts_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Create chunk data dictionary
+        chunk_data = {}
+        for chunk in chunks:
+            chunk_data[chunk.chunk_id] = {
+                "text": chunk.text,
+                "doc_id": chunk.doc_id,
+                "chunk_index": chunk.chunk_index,
+                "token_count": chunk.token_count
+            }
+
+        # Save as compressed JSON
+        with gzip.open(chunk_texts_path, 'wt', encoding='utf-8') as f:
+            json.dump(chunk_data, f, ensure_ascii=False)
+
+        file_size = chunk_texts_path.stat().st_size
+        logger.info(f"Chunk texts exported: {format_file_size(file_size)} ({len(chunk_data)} chunks)")
+
     def export_embeddings(
         self,
         chunk_embeddings: Dict[str, np.ndarray],

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 from loguru import logger
 import tiktoken
+import pandas as pd
 
 # Document parsing libraries
 from PyPDF2 import PdfReader
@@ -58,6 +59,8 @@ class DocumentLoader:
             text = self._load_txt(file_path)
         elif file_type == '.md':
             text = self._load_markdown(file_path)
+        elif file_type == '.csv':
+            text = self._load_csv(file_path)
         else:
             raise ValueError(f"Unsupported file type: {file_type}")
 
@@ -134,6 +137,77 @@ class DocumentLoader:
         except Exception as e:
             logger.error(f"Error loading Markdown {file_path}: {e}")
             raise
+
+    def _load_csv(self, file_path: Path) -> str:
+        """
+        Load CSV file and convert to structured text
+
+        Each row is converted to a readable sentence format.
+        Column headers are used to create meaningful text.
+        """
+        try:
+            # Read CSV file
+            df = pd.read_csv(file_path, encoding='utf-8', on_bad_lines='skip')
+
+            if df.empty:
+                logger.warning(f"CSV file is empty: {file_path}")
+                return ""
+
+            # Convert DataFrame to text
+            text_parts = []
+
+            # Add header information
+            text_parts.append(f"CSV Document: {file_path.name}")
+            text_parts.append(f"Columns: {', '.join(df.columns.tolist())}")
+            text_parts.append("")  # Blank line
+
+            # Convert each row to readable text
+            for idx, row in df.iterrows():
+                row_text_parts = []
+                for col in df.columns:
+                    value = row[col]
+                    # Skip NaN values
+                    if pd.notna(value):
+                        # Create readable format: "Column: value"
+                        row_text_parts.append(f"{col}: {value}")
+
+                # Join row parts with semicolons
+                if row_text_parts:
+                    row_text = "; ".join(row_text_parts)
+                    text_parts.append(f"Row {idx + 1}: {row_text}")
+
+            # Join all parts
+            full_text = "\n".join(text_parts)
+
+            logger.info(f"Loaded CSV with {len(df)} rows and {len(df.columns)} columns")
+
+            return normalize_text(full_text)
+
+        except Exception as e:
+            logger.error(f"Error loading CSV {file_path}: {e}")
+            # Try alternative encoding
+            try:
+                df = pd.read_csv(file_path, encoding='latin-1', on_bad_lines='skip')
+                text_parts = []
+                text_parts.append(f"CSV Document: {file_path.name}")
+                text_parts.append(f"Columns: {', '.join(df.columns.tolist())}")
+                text_parts.append("")
+
+                for idx, row in df.iterrows():
+                    row_text_parts = []
+                    for col in df.columns:
+                        value = row[col]
+                        if pd.notna(value):
+                            row_text_parts.append(f"{col}: {value}")
+
+                    if row_text_parts:
+                        row_text = "; ".join(row_text_parts)
+                        text_parts.append(f"Row {idx + 1}: {row_text}")
+
+                full_text = "\n".join(text_parts)
+                return normalize_text(full_text)
+            except:
+                raise
 
     def load_directory(self, directory_path: Path) -> List[Tuple[str, DocumentMetadata]]:
         """
