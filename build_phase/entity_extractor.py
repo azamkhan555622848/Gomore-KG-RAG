@@ -4,6 +4,7 @@ Extracts structured entities from text chunks
 """
 
 import json
+import re
 import time
 from typing import List, Dict, Optional
 from loguru import logger
@@ -127,8 +128,23 @@ class EntityExtractor:
         """
         start_time = time.time()
 
-        # Format prompt
-        prompt = format_entity_extraction_prompt(chunk.text)
+        # Try to extract the specific JSON blob from the CSV text format
+        text_to_process = chunk.text
+        # This regex is designed to find a JSON string within the 'key_entities' field
+        # It looks for 'key_entities: """{...}"""' and captures the JSON inside
+        match = re.search(r'key_entities: """(.*)"""', chunk.text, re.DOTALL)
+        if match:
+            json_str = match.group(1)
+            try:
+                # Verify it's valid JSON before using it
+                json.loads(json_str)
+                text_to_process = json_str
+                logger.debug("Extracted JSON from key_entities for analysis.")
+            except json.JSONDecodeError:
+                logger.warning("Found key_entities but failed to decode JSON, using full text.")
+        
+        # Format prompt with the potentially extracted JSON
+        prompt = format_entity_extraction_prompt(text_to_process)
 
         # Generate response
         response = self.ollama.generate(
@@ -200,8 +216,9 @@ class EntityExtractor:
         # Extract JSON from response
         json_data = extract_json_from_text(response)
 
-        if not json_data or not isinstance(json_data, list):
+        if json_data is None or not isinstance(json_data, list):
             logger.warning(f"Could not parse entity response for chunk {chunk.chunk_id}")
+            logger.debug(f"LLM response for chunk {chunk.chunk_id}:\n---\n{response}\n---")
             return []
 
         entities = []

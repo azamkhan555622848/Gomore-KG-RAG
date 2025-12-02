@@ -4,35 +4,46 @@ Optimized for entity and relationship extraction
 """
 
 # Entity Extraction Prompt
-ENTITY_EXTRACTION_PROMPT = """You are an expert at extracting structured entities from text.
+ENTITY_EXTRACTION_PROMPT = """You are an expert health data analyst. Your task is to extract key characteristics and tags from a JSON object describing a user.
 
-Extract ALL entities from the following text and classify them into these types:
-- PERSON: People, characters, names
-- ORGANIZATION: Companies, institutions, groups
-- LOCATION: Places, cities, countries, geographical locations
-- DATE: Dates, times, temporal expressions
-- PRODUCT: Products, services, items
-- CONCEPT: Abstract concepts, ideas, theories
-- EVENT: Events, occurrences, happenings
-- TECHNOLOGY: Technologies, tools, methods, systems
+**Analysis Rules:**
+- **BMI_Category:** Classify the BMI.
+  - `< 18.5`: "過輕"
+  - `18.5 - 24.9`: "正常"
+  - `25.0 - 29.9`: "過重"
+  - `>= 30.0`: "肥胖"
+- **Age_Group:** Classify the age.
+  - `< 30`: "年輕"
+  - `30 - 49`: "中年"
+  - `>= 50`: "熟齡"
+- **Goal_Type:**
+  - If `main_goal` has more than one item: "多目標"
+  - If `main_goal` has one item: "單一目標"
+- **Character:** Extract from the `character` field.
+- **Goal:** Extract each item from the `main_goal` array.
+- **Gender:** Extract from the `gender` field ("male" -> "男性", "female" -> "女性").
 
-Text to analyze:
-\"\"\"
+**Input JSON:**
+```json
 {text}
-\"\"\"
+```
 
-Return ONLY a valid JSON array with this exact format:
+**Output Format:**
+Return ONLY a valid JSON array of extracted tags. The "type" should be one of the analysis categories (e.g., "BMI_Category", "Goal") and the "entity" should be the extracted value.
+
+**Example:**
 [
-  {{"entity": "entity name", "type": "ENTITY_TYPE", "context": "surrounding context"}},
-  ...
+  {{"entity": "mego", "type": "Character", "context": "Character for the interaction"}},
+  {{"entity": "正常", "type": "BMI_Category", "context": "BMI is 23.5"}},
+  {{"entity": "年輕", "type": "Age_Group", "context": "Age is 29"}},
+  {{"entity": "男性", "type": "Gender", "context": "User is male"}},
+  {{"entity": "多目標", "type": "Goal_Type", "context": "User has multiple goals"}},
+  {{"entity": "變健美", "type": "Goal", "context": "Main goal"}},
+  {{"entity": "體力好", "type": "Goal", "context": "Main goal"}}
 ]
 
-Requirements:
-- Extract ALL mentioned entities (up to 20 most important)
-- Normalize entity names (e.g., "Dr. Smith" → "Smith")
-- Include brief context for disambiguation
-- Return ONLY the JSON array, no other text
-- If no entities found, return []
+**Your Task:**
+Analyze the Input JSON and generate the corresponding JSON array of tags. If the input is not valid JSON, return an empty array `[]`.
 
 JSON output:"""
 

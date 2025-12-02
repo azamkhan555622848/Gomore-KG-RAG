@@ -181,7 +181,7 @@ class DocumentLoader:
 
             logger.info(f"Loaded CSV with {len(df)} rows and {len(df.columns)} columns")
 
-            return normalize_text(full_text)
+            return full_text
 
         except Exception as e:
             logger.error(f"Error loading CSV {file_path}: {e}")
@@ -205,7 +205,7 @@ class DocumentLoader:
                         text_parts.append(f"Row {idx + 1}: {row_text}")
 
                 full_text = "\n".join(text_parts)
-                return normalize_text(full_text)
+                return full_text
             except:
                 raise
 
@@ -346,7 +346,7 @@ class TextChunker:
 
         return " ".join(overlap_sentences)
 
-    def _create_chunk(self, text: str, doc_id: str, chunk_index: int, start_char: int) -> TextChunk:
+    def _create_chunk(self, text: str, doc_id: str, chunk_index: int, start_char: int, tags: Optional[str] = None, notes: Optional[str] = None) -> TextChunk:
         """Create TextChunk object"""
         chunk_id = generate_id(f"{doc_id}_{chunk_index}", prefix="chunk_")
         token_count = self._count_tokens(text)
@@ -358,7 +358,9 @@ class TextChunker:
             start_char=start_char,
             end_char=start_char + len(text),
             chunk_index=chunk_index,
-            token_count=token_count
+            token_count=token_count,
+            tags=tags,
+            notes=notes
         )
 
 
@@ -405,18 +407,57 @@ class DocumentProcessor:
         all_metadata = []
         all_chunks = []
 
-        # Load all documents
         documents = self.loader.load_directory(directory_path)
 
-        # Process each document
         for text, metadata in documents:
-            chunks = self.chunker.chunk_text(text, metadata.doc_id)
-            metadata.num_chunks = len(chunks)
+            chunks_for_doc = []
+            if metadata.file_type == 'csv':
+                logger.info(f"Special processing for CSV file: {metadata.filename}")
+                try:
+                    df = pd.read_csv(metadata.file_path, encoding='utf-8', on_bad_lines='skip')
+                    if df.empty:
+                        logger.warning(f"CSV file is empty: {metadata.filename}")
+                        metadata.num_chunks = 0
+                        all_metadata.append(metadata)
+                        continue
 
+                    # Process each row as a separate chunk
+                    for i, row in df.iterrows():
+                        # Combine all columns except tags and notes into a single text string
+                        row_text_parts = []
+                        for col, value in row.items():
+                            if pd.notna(value) and col not in ['tags', 'notes']:
+                                row_text_parts.append(f"{col}: {value}")
+                        chunk_text = "; ".join(row_text_parts)
+
+                        # Extract tags and notes
+                        tags = str(row.get('tags')) if pd.notna(row.get('tags')) else None
+                        notes = str(row.get('notes')) if pd.notna(row.get('notes')) else None
+                        
+                        chunk_obj = self.chunker._create_chunk(
+                            text=chunk_text,
+                            doc_id=metadata.doc_id,
+                            chunk_index=i,
+                            start_char=0,  # Not applicable for row-based chunks
+                            tags=tags,
+                            notes=notes
+                        )
+                        chunks_for_doc.append(chunk_obj)
+                    
+                    logger.info(f"Created {len(chunks_for_doc)} chunks from CSV: {metadata.filename}")
+
+                except Exception as e:
+                    logger.error(f"Failed to process CSV rows for {metadata.filename}: {e}")
+                    continue
+            else:
+                # Original logic for non-CSV files
+                chunks_for_doc = self.chunker.chunk_text(text, metadata.doc_id)
+
+            metadata.num_chunks = len(chunks_for_doc)
             all_metadata.append(metadata)
-            all_chunks.extend(chunks)
+            all_chunks.extend(chunks_for_doc)
 
-        logger.info(f"Processed {len(all_metadata)} documents, created {len(all_chunks)} chunks")
+        logger.info(f"Processed {len(all_metadata)} documents, created {len(all_chunks)} chunks in total")
 
         return all_metadata, all_chunks
 

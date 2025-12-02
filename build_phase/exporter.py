@@ -82,7 +82,9 @@ class GraphExporter:
                 "text": chunk.text,
                 "doc_id": chunk.doc_id,
                 "chunk_index": chunk.chunk_index,
-                "token_count": chunk.token_count
+                "token_count": chunk.token_count,
+                "tags": chunk.tags,
+                "notes": chunk.notes
             }
 
         # Save as compressed JSON

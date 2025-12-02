@@ -20,6 +20,17 @@ from query_phase.ollama_interface import OllamaInterface
 from build_phase.indexer import FAISSIndexer
 from build_phase.embedder import Embedder
 
+# Import character prompts
+from shared.character_prompts import (
+    format_mego_answer_prompt,
+    format_luki_answer_prompt,
+    format_mego_health_advice,
+    format_luki_health_advice,
+    format_residence_card_mego,
+    format_residence_card_luki,
+    translate_activity_level
+)
+
 
 class GraphRAGEngine:
     """Main Graph-RAG engine for query answering"""
@@ -57,52 +68,68 @@ class GraphRAGEngine:
         if not self.ollama.check_connection():
             logger.warning("Cannot connect to Ollama. Answer generation may fail.")
 
-        # Load chunk texts (for context assembly)
-        self.chunk_texts: Dict[str, str] = {}
+        # Load chunk data (for context assembly)
+        self.chunk_data: Dict[str, Dict] = {}
         self._load_chunk_texts()
 
         logger.info("Graph-RAG Engine initialized successfully")
 
     def _load_chunk_texts(self) -> None:
         """
-        Load chunk texts from exported file
+        Load chunk data from exported file
         """
         chunk_texts_path = self.graph_loader.shared_config.graph_path.parent / "chunk_texts.json.gz"
 
         if not chunk_texts_path.exists():
-            logger.warning(f"Chunk texts file not found: {chunk_texts_path}")
-            logger.warning("Chunk texts will not be available for context assembly")
+            logger.warning(f"Chunk data file not found: {chunk_texts_path}")
+            logger.warning("Chunk data will not be available for context assembly")
             return
 
         try:
-            logger.info(f"Loading chunk texts from {chunk_texts_path}")
+            logger.info(f"Loading chunk data from {chunk_texts_path}")
             with gzip.open(chunk_texts_path, 'rt', encoding='utf-8') as f:
-                chunk_data = json.load(f)
+                self.chunk_data = json.load(f)
 
-            # Extract text from chunk data
-            for chunk_id, data in chunk_data.items():
-                self.chunk_texts[chunk_id] = data['text']
-
-            logger.info(f"Loaded {len(self.chunk_texts)} chunk texts")
+            logger.info(f"Loaded data for {len(self.chunk_data)} chunks")
 
         except Exception as e:
-            logger.error(f"Error loading chunk texts: {e}")
-            logger.warning("Proceeding without chunk texts")
+            logger.error(f"Error loading chunk data: {e}")
+            logger.warning("Proceeding without chunk data")
 
-    def query(self, question: str) -> QueryResult:
+    def query(self, question: str, character: str = "mego", user_data: Optional[Dict] = None, case: Optional[str] = None) -> QueryResult:
         """
         Process a query and generate answer
 
         Args:
             question: User question
+            character: Character style ("mego" or "luki")
+            user_data: Optional user data for personalized responses (age, bmi, etc.)
+            case: Optional case for specific query types
 
         Returns:
             QueryResult with answer and context
         """
         start_time = time.time()
 
-        logger.info(f"Processing query: {question}")
+        logger.info(f"Processing query: {question} (Case: {case})")
 
+        # Handle case-specific logic that doesn't require standard retrieval/answer flow
+        if case == "島民居留證摘要":
+            if not user_data:
+                raise ValueError("user_data is required for 島民居留證摘要 case")
+            
+            answer = self.generate_residence_card(user_data, character)
+            
+            return QueryResult(
+                query=question,
+                answer=answer,
+                context=GraphContext(),
+                retrieval_results=[],
+                citations=[],
+                processing_time=time.time() - start_time
+            )
+
+        # Standard RAG flow for other cases
         # Step 1: Retrieve relevant context
         retrieval_results = self.retriever.retrieve(question)
 
@@ -113,7 +140,7 @@ class GraphRAGEngine:
         context = self._assemble_context(question, retrieval_results)
 
         # Step 4: Generate answer
-        answer = self._generate_answer(question, context, retrieval_results)
+        answer = self._generate_answer(question, context, retrieval_results, character, user_data, case)
 
         # Step 5: Extract citations
         citations = self._extract_citations(context)
@@ -141,21 +168,24 @@ class GraphRAGEngine:
 
     def _populate_chunk_texts(self, retrieval_results: List[RetrievalResult]) -> None:
         """
-        Populate chunk texts from loaded chunk data
+        Populate chunk texts, tags, and notes from loaded chunk data
 
         Args:
             retrieval_results: List of retrieval results
         """
         for result in retrieval_results:
-            # Get chunk text from loaded chunk texts
-            chunk_text = self.chunk_texts.get(result.chunk_id, "")
+            # Get chunk data from loaded data
+            chunk_data = self.chunk_data.get(result.chunk_id, {})
 
-            if not chunk_text:
-                logger.warning(f"Chunk text not found for {result.chunk_id}")
-                chunk_text = f"[Text not available for {result.chunk_id}]"
-
-            # Update result with text
-            result.text = chunk_text
+            if not chunk_data:
+                logger.warning(f"Chunk data not found for {result.chunk_id}")
+                result.text = f"[Text not available for {result.chunk_id}]"
+                result.tags = None
+                result.notes = None
+            else:
+                result.text = chunk_data.get('text', '')
+                result.tags = chunk_data.get('tags')
+                result.notes = chunk_data.get('notes')
 
     def _assemble_context(
         self,
@@ -207,11 +237,13 @@ class GraphRAGEngine:
             chunk = TextChunk(
                 chunk_id=result.chunk_id,
                 doc_id=result.doc_id,
-                text=result.text,
+                text=result.text or "",
+                tags=result.tags,
+                notes=result.notes,
                 start_char=0,
-                end_char=len(result.text),
+                end_char=len(result.text or ""),
                 chunk_index=0,
-                token_count=count_tokens(result.text)
+                token_count=count_tokens(result.text or "")
             )
             context.chunks.append(chunk)
 
@@ -223,20 +255,26 @@ class GraphRAGEngine:
         self,
         question: str,
         context: GraphContext,
-        retrieval_results: List[RetrievalResult]
+        retrieval_results: List[RetrievalResult],
+        character: str = "mego",
+        user_data: Optional[Dict] = None,
+        case: Optional[str] = None
     ) -> str:
         """
-        Generate answer using Ollama
+        Generate answer using Ollama with character-specific prompts
 
         Args:
             question: User question
             context: Assembled context
             retrieval_results: Retrieval results
+            character: Character style ("mego" or "luki")
+            user_data: Optional user data for personalized responses
+            case: Optional case for specific prompt routing
 
         Returns:
             Generated answer
         """
-        logger.debug("Generating answer")
+        logger.debug(f"Generating answer for case: {case}")
 
         # Build context string
         context_parts = []
@@ -264,7 +302,13 @@ class GraphRAGEngine:
         if context.chunks:
             chunk_info = "Relevant information:\n"
             for i, chunk in enumerate(context.chunks[:5], 1):  # Limit to top 5
-                chunk_info += f"{i}. {chunk.text}\n\n"
+                chunk_info += f"--- Start of Document {i} ---\n"
+                if chunk.tags:
+                    chunk_info += f"Tags: {chunk.tags}\n"
+                if chunk.notes:
+                    chunk_info += f"Summary Note: {chunk.notes}\n"
+                chunk_info += f"Content: {chunk.text}\n"
+                chunk_info += f"--- End of Document {i} ---\n\n"
             context_parts.append(chunk_info)
 
         context_str = "\n\n".join(context_parts)
@@ -284,15 +328,236 @@ class GraphRAGEngine:
         # Extract entity names for citations
         entity_names = [e.get('name', '') for e in context.entities if e.get('name')]
 
-        # Generate answer
-        answer = self.ollama.generate_answer(
-            question,
-            context_str,
-            entities=entity_names,
-            include_citations=self.config.enable_citations
-        )
+        # Validate character
+        character = character.lower()
+        if character not in ["mego", "luki"]:
+            logger.warning(f"Invalid character '{character}', defaulting to 'mego'")
+            character = "mego"
+
+        # Check if this is a health advice query with user data
+        if user_data and self._is_health_advice_query(user_data):
+            # Use health advice prompts
+            answer = self._generate_health_advice(
+                question, context_str, character, user_data
+            )
+        else:
+            # Use general answer prompts
+            answer = self._generate_general_answer(
+                question, context_str, entity_names, character
+            )
+        
+        # This logic is now handled by the case router, but as a fallback, we ensure TC.
+        # This part of the code might be refactored further based on case handling.
+        if not case: # Add instruction for non-case-based queries
+             answer += "\n\n(請務必使用繁體中文回答)"
+
 
         return answer
+
+    def _is_health_advice_query(self, user_data: Dict) -> bool:
+        """
+        Check if query requires health advice based on user data
+
+        Args:
+            user_data: User data dictionary
+
+        Returns:
+            True if all required fields are present
+        """
+        required_fields = ['age', 'gender', 'bmi', 'waist', 'activity_level', 'tdee', 'main_goal']
+        return all(field in user_data for field in required_fields)
+
+    def _generate_general_answer(
+        self,
+        question: str,
+        context_str: str,
+        entity_names: List[str],
+        character: str
+    ) -> str:
+        """
+        Generate general answer using character-specific prompts
+
+        Args:
+            question: User question
+            context_str: Context string
+            entity_names: List of entity names
+            character: Character style ("mego" or "luki")
+
+        Returns:
+            Generated answer
+        """
+        # Format character-specific prompt
+        if character == "mego":
+            prompt = format_mego_answer_prompt(context_str, entity_names, question)
+        else:  # luki
+            prompt = format_luki_answer_prompt(context_str, entity_names, question)
+
+        # Generate using Ollama directly (bypass the existing generate_answer)
+        response = self.ollama._chat(
+            prompt,
+            max_tokens=self.config.max_answer_tokens,
+            temperature=self.config.temperature
+        )
+
+        return response
+
+    def _generate_health_advice(
+        self,
+        question: str,
+        context_str: str,
+        character: str,
+        user_data: Dict
+    ) -> str:
+        """
+        Generate personalized health advice using character-specific prompts
+
+        Args:
+            question: User question
+            context_str: Context string
+            character: Character style ("mego" or "luki")
+            user_data: User data with health metrics
+
+        Returns:
+            Generated health advice
+        """
+        # Translate activity level to Chinese
+        activity_level_zh = translate_activity_level(user_data.get('activity_level', 'medium'))
+
+        # Format character-specific health advice prompt
+        if character == "mego":
+            prompt = format_mego_health_advice(
+                age=user_data['age'],
+                gender=user_data['gender'],
+                bmi=user_data['bmi'],
+                waist=user_data['waist'],
+                activity_level=activity_level_zh,
+                tdee=user_data['tdee'],
+                main_goals=user_data['main_goal'],
+                context=context_str,
+                question=question
+            )
+        else:  # luki
+            prompt = format_luki_health_advice(
+                age=user_data['age'],
+                gender=user_data['gender'],
+                bmi=user_data['bmi'],
+                waist=user_data['waist'],
+                activity_level=activity_level_zh,
+                tdee=user_data['tdee'],
+                main_goals=user_data['main_goal'],
+                context=context_str,
+                question=question
+            )
+
+        # Generate using Ollama
+        response = self.ollama._chat(
+            prompt,
+            max_tokens=self.config.max_answer_tokens,
+            temperature=self.config.temperature
+        )
+
+        return response
+
+    def generate_residence_card(
+        self,
+        user_data: Dict,
+        character: str = "mego"
+    ) -> str:
+        """
+        Generate personalized residence card summary for onboarding
+
+        Args:
+            user_data: User data with all required fields
+            character: Character style ("mego" or "luki")
+
+        Returns:
+            Residence card summary text
+        """
+        # Validate character
+        character = character.lower()
+        if character not in ["mego", "luki"]:
+            logger.warning(f"Invalid character '{character}', defaulting to 'mego'")
+            character = "mego"
+
+        # Retrieve and filter context about user's health goals
+        user_goals = user_data.get('main_goal', [])
+        goals_query = "、".join(user_goals)
+        context_str = ""
+
+        try:
+            # Step 1: Retrieve a set of candidate documents
+            retrieval_results = self.retriever.retrieve(goals_query, top_k=5)
+            self._populate_chunk_texts(retrieval_results)
+
+            # Step 2: Filter the results to keep only those relevant to the user's specific goals
+            filtered_results = []
+            if user_goals:
+                for result in retrieval_results:
+                    is_relevant = False
+                    for goal in user_goals:
+                        if (result.tags and goal in result.tags) or \
+                           (result.notes and goal in result.notes):
+                            is_relevant = True
+                            break
+                    if is_relevant:
+                        filtered_results.append(result)
+            
+            logger.debug(f"Retrieved {len(retrieval_results)} chunks, filtered down to {len(filtered_results)} relevant chunks.")
+
+            # Step 3: Build context string from the *filtered* results
+            context_parts = []
+            for result in filtered_results[:3]:  # Use top 3 of the filtered list
+                # Provide a structured context with the most useful summary info
+                if result.notes:
+                    context_parts.append(f"Context Note: {result.notes}")
+            context_str = "\n".join(context_parts)
+
+        except Exception as e:
+            logger.warning(f"Could not retrieve or filter goal context: {e}")
+            context_str = ""  # Fallback to empty context on error
+
+        # Translate activity level to Chinese
+        activity_level_zh = translate_activity_level(user_data.get('activity_level', 'medium'))
+
+        # Format character-specific residence card prompt
+        if character == "mego":
+            prompt = format_residence_card_mego(
+                user_id=user_data.get('user_id', 0),
+                age=user_data.get('age'),
+                gender=user_data.get('gender'),
+                height=user_data.get('height'),
+                weight=user_data.get('weight'),
+                bmi=user_data.get('bmi'),
+                waist=user_data.get('waist'),
+                activity_level=activity_level_zh,
+                tdee=user_data.get('tdee'),
+                main_goals=user_data.get('main_goal', []),
+                context=context_str
+            )
+        else:  # luki
+            prompt = format_residence_card_luki(
+                user_id=user_data.get('user_id', 0),
+                age=user_data.get('age'),
+                gender=user_data.get('gender'),
+                height=user_data.get('height'),
+                weight=user_data.get('weight'),
+                bmi=user_data.get('bmi'),
+                waist=user_data.get('waist'),
+                activity_level=activity_level_zh,
+                tdee=user_data.get('tdee'),
+                main_goals=user_data.get('main_goal', []),
+                context=context_str
+            )
+
+        # Generate using Ollama
+        logger.info(f"Generating residence card for user {user_data.get('user_id', '?')} with character: {character}")
+        summary = self.ollama._chat(
+            prompt,
+            max_tokens=512,  # Residence card summaries are shorter
+            temperature=0.7  # Slightly more creative for engaging summaries
+        )
+
+        return summary
 
     def _extract_citations(self, context: GraphContext) -> List[str]:
         """

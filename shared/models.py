@@ -46,16 +46,16 @@ class DocumentMetadata(BaseModel):
 
 
 class TextChunk(BaseModel):
-    """A chunk of text from a document"""
+    """Represents a chunk of text from a document"""
     chunk_id: str
     doc_id: str
     text: str
     start_char: int
     end_char: int
-    chunk_index: int  # Position in document
+    chunk_index: int
     token_count: int
-    entities: List[str] = Field(default_factory=list)  # Entity IDs in this chunk
-    embedding: Optional[List[float]] = None
+    tags: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class Entity(BaseModel):
@@ -107,15 +107,13 @@ class KnowledgeGraph(BaseModel):
 
 
 class RetrievalResult(BaseModel):
-    """Result from hybrid retrieval"""
+    """Represents a single retrieved item"""
     chunk_id: str
-    text: str
-    score: float
-    vector_score: float = 0.0
-    graph_score: float = 0.0
-    entities: List[str] = Field(default_factory=list)
     doc_id: str
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    score: float
+    text: Optional[str] = None
+    tags: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class GraphContext(BaseModel):

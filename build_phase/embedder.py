@@ -42,15 +42,26 @@ class Embedder:
 
         chunk_embeddings = {}
 
-        # Extract texts
-        texts = [clean_text_for_embedding(chunk.text) for chunk in chunks]
+        # Create a richer text representation for each chunk
+        texts_to_embed = []
+        for chunk in chunks:
+            # For chunks from CSVs that have a 'notes' summary, use that for embedding.
+            # This should provide a cleaner, more semantically focused vector.
+            if chunk.notes:
+                text_for_embedding = chunk.notes
+            else:
+                # Fallback for chunks without notes (e.g., from other document types)
+                text_for_embedding = chunk.text
+            
+            texts_to_embed.append(clean_text_for_embedding(text_for_embedding))
+
         chunk_ids = [chunk.chunk_id for chunk in chunks]
 
         # Generate embeddings in batches
         all_embeddings = []
 
         for batch_texts in tqdm(
-            list(batch_iterator(texts, self.batch_size)),
+            list(batch_iterator(texts_to_embed, self.batch_size)),
             desc="Embedding chunks"
         ):
             batch_embeddings = self.model.encode(

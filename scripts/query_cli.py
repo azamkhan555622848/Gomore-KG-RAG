@@ -77,6 +77,41 @@ def print_result(result):
     print("-" * 60 + "\n")
 
 
+import json
+from typing import Optional, Dict
+
+def try_parse_json(text: str) -> Optional[Dict]:
+    """
+    Attempt to parse a string as JSON.
+    Returns the parsed dictionary or None if parsing fails.
+    """
+    try:
+        # The user input seems to be wrapped in extra quotes, remove them
+        if text.startswith('"') and text.endswith('"'):
+            text = text[1:-1]
+        
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return data
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return None
+
+def generate_question_from_json(data: Dict) -> str:
+    """
+    Generates a natural language question from a parsed JSON object.
+    """
+    user_data = data.get("data", {})
+    user_id = data.get("user_id", "N/A")
+    age = user_data.get("age", "N/A")
+    gender = user_data.get("gender", "N/A")
+    activity = user_data.get("activity_level", "N/A")
+    goals = "、".join(user_data.get("main_goal", []))
+
+    return (f"針對 user_id 為 {user_id} 的使用者，一位 {age} 歲的 {gender}，"
+            f"其活動量為 {activity}。如果他們的主要目標是 '{goals}'，請問有什麼建議？")
+
+
 def main():
     """Main CLI loop"""
 
@@ -111,14 +146,14 @@ def main():
     while True:
         try:
             # Get user input
-            query = input("You: ").strip()
+            raw_query = input("You: ").strip()
 
-            if not query:
+            if not raw_query:
                 continue
 
             # Handle commands
-            if query.startswith('/'):
-                command = query.lower()
+            if raw_query.startswith('/'):
+                command = raw_query.lower()
 
                 if command == '/exit' or command == '/quit':
                     print("\nGoodbye!\n")
@@ -128,15 +163,36 @@ def main():
                 elif command == '/stats':
                     print_stats(engine)
                 else:
-                    print(f"\nUnknown command: {query}")
+                    print(f"\nUnknown command: {raw_query}")
                     print("Type /help for available commands\n")
 
                 continue
-
-            # Process query
+            
             print("\nProcessing...")
 
-            result = engine.query(query)
+            # Try to process as JSON query first
+            json_data = try_parse_json(raw_query)
+            
+            if json_data:
+                case = json_data.get("case")
+                character = json_data.get("character", "mego")
+                user_data = json_data.get("data")
+                
+                # Generate a natural language question from the JSON data
+                question = generate_question_from_json(json_data)
+                
+                print(f"Interpreted as JSON query. Case: '{case}', Character: '{character}'")
+                print(f"Generated Question: {question}\n")
+                
+                result = engine.query(
+                    question=question,
+                    character=character,
+                    user_data=user_data,
+                    case=case
+                )
+            else:
+                # Process as a standard text query
+                result = engine.query(raw_query)
 
             print_result(result)
 
