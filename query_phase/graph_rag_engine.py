@@ -464,7 +464,9 @@ class GraphRAGEngine:
         character: str = "mego"
     ) -> str:
         """
-        Generate personalized residence card summary for onboarding
+        Generate personalized residence card summary for onboarding.
+        This method now bypasses RAG and uses a direct-to-LLM approach
+        with improved prompts to prevent goal hallucination.
 
         Args:
             user_data: User data with all required fields
@@ -479,45 +481,20 @@ class GraphRAGEngine:
             logger.warning(f"Invalid character '{character}', defaulting to 'mego'")
             character = "mego"
 
-        # Retrieve and filter context about user's health goals
-        user_goals = user_data.get('main_goal', [])
-        goals_query = "、".join(user_goals)
+        # --- FIX: Bypass RAG and Goal Hallucination ---
+        # The RAG retrieval was providing irrelevant context, causing the LLM to
+        # ignore the user's actual goals and hallucinate new ones.
+        # As per the analysis in module3, we now bypass retrieval entirely
+        # and rely on the improved prompt structure.
         context_str = ""
-
-        try:
-            # Step 1: Retrieve a set of candidate documents
-            retrieval_results = self.retriever.retrieve(goals_query, top_k=5)
-            self._populate_chunk_texts(retrieval_results)
-
-            # Step 2: Filter the results to keep only those relevant to the user's specific goals
-            filtered_results = []
-            if user_goals:
-                for result in retrieval_results:
-                    is_relevant = False
-                    for goal in user_goals:
-                        if (result.tags and goal in result.tags) or \
-                           (result.notes and goal in result.notes):
-                            is_relevant = True
-                            break
-                    if is_relevant:
-                        filtered_results.append(result)
-            
-            logger.debug(f"Retrieved {len(retrieval_results)} chunks, filtered down to {len(filtered_results)} relevant chunks.")
-
-            # Step 3: Build context string from the *filtered* results
-            context_parts = []
-            for result in filtered_results[:3]:  # Use top 3 of the filtered list
-                # Provide a structured context with the most useful summary info
-                if result.notes:
-                    context_parts.append(f"Context Note: {result.notes}")
-            context_str = "\n".join(context_parts)
-
-        except Exception as e:
-            logger.warning(f"Could not retrieve or filter goal context: {e}")
-            context_str = ""  # Fallback to empty context on error
+        logger.debug("Bypassing RAG for residence card generation to prevent goal hallucination.")
+        # --- END FIX ---
 
         # Translate activity level to Chinese
         activity_level_zh = translate_activity_level(user_data.get('activity_level', 'medium'))
+
+        # Corrected user_data access from 'main_goal' to 'main_goals'
+        main_goals = user_data.get('main_goals', [])
 
         # Format character-specific residence card prompt
         if character == "mego":
@@ -531,7 +508,7 @@ class GraphRAGEngine:
                 waist=user_data.get('waist'),
                 activity_level=activity_level_zh,
                 tdee=user_data.get('tdee'),
-                main_goals=user_data.get('main_goal', []),
+                main_goals=main_goals,
                 context=context_str
             )
         else:  # luki
@@ -545,7 +522,7 @@ class GraphRAGEngine:
                 waist=user_data.get('waist'),
                 activity_level=activity_level_zh,
                 tdee=user_data.get('tdee'),
-                main_goals=user_data.get('main_goal', []),
+                main_goals=main_goals,
                 context=context_str
             )
 
